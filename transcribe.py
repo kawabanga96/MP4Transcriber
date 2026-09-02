@@ -1,13 +1,13 @@
 """Локальная расшифровка речи из видео (mp4) -> текстовый файл.
 
 Работает полностью офлайн: видео не покидает машину.
-Для извлечения аудио требуется ffmpeg.
+Для извлечения аудио используется встроенный ffmpeg-бинарь
+из пакета imageio-ffmpeg (скачивается один раз при установке).
 Модель Whisper скачивается один раз при первом запуске, далее
 инференс происходит локально (без интернета).
 
 Зависимости:
-    pip install faster-whisper torch openai-whisper
-    (ffmpeg должен быть в PATH, либо задан --ffmpeg)
+    pip install faster-whisper torch imageio-ffmpeg
 """
 
 import argparse
@@ -25,13 +25,27 @@ def format_timestamp(seconds: float) -> str:
     return f"[{hours:02d}:{minutes:02d}:{secs:02d}]"
 
 
-def extract_audio(video_path: Path, ffmpeg_cmd: str) -> Path:
+def get_ffmpeg_path() -> str:
+    """Возвращает путь к ffmpeg-бинарю из imageio-ffmpeg."""
+    try:
+        import imageio_ffmpeg
+    except ImportError:
+        raise RuntimeError(
+            "Не установлен пакет imageio-ffmpeg. Установите:\n"
+            "  pip install imageio-ffmpeg"
+        )
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def extract_audio(video_path: Path, ffmpeg_cmd: str | None) -> Path:
     """Извлекает аудиодорожку из видео во временный WAV-файл.
 
     Возвращает путь к WAV-файлу.
     """
     if not video_path.exists():
         raise FileNotFoundError(f"Файл не найден: {video_path}")
+
+    ffmpeg_cmd = ffmpeg_cmd or get_ffmpeg_path()
 
     tmp_dir = tempfile.gettempdir()
     wav_path = Path(tmp_dir) / f"{video_path.stem}_{id(video_path)}.wav"
@@ -116,8 +130,8 @@ def main() -> None:
                              "(по умолчанию small)")
     parser.add_argument("-l", "--language", type=str, default=None,
                         help="Код языка (например, 'ru'). Пусто = автоопределение")
-    parser.add_argument("--ffmpeg", type=str, default="ffmpeg",
-                        help="Путь к исполняемому файлу ffmpeg (по умолчанию 'ffmpeg')")
+    parser.add_argument("--ffmpeg", type=str, default=None,
+                        help="Путь к ffmpeg. Пусто = автоопределение из imageio-ffmpeg")
     args = parser.parse_args()
 
     out_path = args.output or args.video.with_suffix(".txt")
