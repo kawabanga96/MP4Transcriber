@@ -18,11 +18,11 @@ from pathlib import Path
 
 
 def format_timestamp(seconds: float) -> str:
-    """Переводит секунды в формат [ЧЧ:ММ:СС]."""
+    """Переводит секунды в формат ЧЧ:ММ:СС."""
     total_seconds = max(0, round(seconds))
     hours, remainder = divmod(total_seconds, 3600)
     minutes, secs = divmod(remainder, 60)
-    return f"[{hours:02d}:{minutes:02d}:{secs:02d}]"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def get_ffmpeg_path() -> str:
@@ -113,8 +113,8 @@ def transcribe(audio_path: Path, model_size: str, language: str):
 
 
 def write_transcript(segments, out_path: Path) -> None:
-    """Записывает реплики в формате '[время] Текст'."""
-    lines = [f"{format_timestamp(start)} {text}" for start, text in segments]
+    """Записывает реплики в формате 'ЧЧ:ММ:СС: Текст'."""
+    lines = [f"{format_timestamp(start)}: {text}" for start, text in segments]
     out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
