@@ -10,13 +10,20 @@
 Модель Whisper скачивается один раз при первом запуске, далее
 инференс происходит локально (без интернета).
 
+При запуске приложение проверяет наличие обновлений в GitHub-репозитории
+и после подтверждения пользователя обновляет сам скрипт. При этом
+видео, аудио и расшифровки никуда не отправляются.
+
 Зависимости:
     pip install faster-whisper torch imageio-ffmpeg
 """
 
+import os
+import re
 import subprocess
 import sys
 import tempfile
+import urllib.request
 import uuid
 from pathlib import Path
 
@@ -28,6 +35,12 @@ except ImportError:  # не Windows
 BASE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
+
+APP_VERSION = "1.1.0"
+GITHUB_REPO = "kawabanga96/MP4Transcriber"
+GITHUB_BRANCH = "main"
+UPDATE_TIMEOUT = 15  # секунд
+CHECK_UPDATES = True  # False — отключить проверку обновлений
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm",
                     ".mpg", ".mpeg", ".wmv", ".flv", ".ts", ".m4a"}
@@ -176,7 +189,99 @@ def wait_for_keypress() -> None:
         input("\nНажмите Enter, чтобы закрыть...")
 
 
+def parse_version(text: str) -> tuple:
+    """Разбирает строку версии в кортеж чисел для сравнения.
+
+    Например, "1.2.3" -> (1, 2, 3).
+    """
+    return tuple(int(part) for part in re.findall(r"\d+", text))
+
+
+def fetch_remote_script() -> tuple[str, str]:
+    """Скачивает скрипт из GitHub и возвращает (содержимое, версия)."""
+    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_BRANCH}/transcribe.py"
+    request = urllib.request.Request(
+        url, headers={"User-Agent": f"MP4Transcriber/{APP_VERSION}"}
+    )
+    with urllib.request.urlopen(request, timeout=UPDATE_TIMEOUT) as response:
+        content = response.read().decode("utf-8")
+
+    match = re.search(r'APP_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+    if not match:
+        raise ValueError("Версия не найдена в удалённом скрипте")
+    return content, match.group(1)
+
+
+def confirm_update(remote_version: str) -> bool:
+    """Спрашивает пользователя, нужно ли обновлять приложение."""
+    while True:
+        answer = input(
+            f"  Обновить приложение до версии {remote_version}? (д/н): "
+        ).strip().lower()
+        if answer in ("д", "y", "да", "yes"):
+            return True
+        if answer in ("н", "n", "нет", "no"):
+            return False
+
+
+def apply_update(remote_content: str) -> bool:
+    """Заменяет текущий скрипт скачанным файлом.
+
+    Возвращает True при успешной замене.
+    """
+    script_path = Path(__file__).resolve()
+    tmp_path = script_path.with_name(
+        f"{script_path.stem}_update_{uuid.uuid4().hex[:6]}.py"
+    )
+    tmp_path.write_text(remote_content, encoding="utf-8")
+    try:
+        os.replace(tmp_path, script_path)
+        return True
+    except PermissionError:
+        print(f"  Не удалось заменить файл автоматически: {script_path}")
+        print(
+            f"  Новая версия сохранена как: {tmp_path}\n"
+            "  Замените transcribe.py вручную и запустите заново."
+        )
+        return False
+
+
+def check_for_updates() -> None:
+    """Проверяет наличие обновлений и обновляет скрипт с согласия пользователя."""
+    print("Проверка обновлений...")
+    try:
+        remote_content, remote_version = fetch_remote_script()
+    except Exception as exc:
+        print(f"  Не удалось проверить обновления: {exc}")
+        print("  Продолжаем работу с установленной версией.\n")
+        return
+
+    if parse_version(remote_version) <= parse_version(APP_VERSION):
+        print(f"  Установлена последняя версия ({APP_VERSION}).\n")
+        return
+
+    print(
+        f"  Доступна новая версия: {remote_version} "
+        f"(текущая: {APP_VERSION})\n"
+    )
+    if not confirm_update(remote_version):
+        print("  Обновление пропущено.\n")
+        return
+
+    print("  Загрузка обновления...")
+    if apply_update(remote_content):
+        print(
+            f"\nОбновление установлено: {APP_VERSION} -> {remote_version}.\n"
+            "Перезапустите приложение, чтобы использовать новую версию."
+        )
+        wait_for_keypress()
+        sys.exit(0)
+
+
 def main() -> None:
+    if CHECK_UPDATES:
+        check_for_updates()
+
     INPUT_DIR.mkdir(exist_ok=True)
     OUTPUT_DIR.mkdir(exist_ok=True)
 
